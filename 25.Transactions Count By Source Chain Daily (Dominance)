@@ -1,0 +1,46 @@
+-- with chain_list(chain_name, chain_id, endpoint_address) as (
+--     values
+--     ('Ethereum', 101,0x66A71Dcef29A0fFBDBE3c6a460a3B5BC225Cd675),
+--     ('BNB Chain', 102,0x3c2269811836af69497E5F486A85D7316753cf62),
+--     ('Avalanche', 106,0x3c2269811836af69497E5F486A85D7316753cf62),
+--     ('Polygon', 109,0x3c2269811836af69497E5F486A85D7316753cf62),
+--     ('Arbitrum', 110,0x3c2269811836af69497E5F486A85D7316753cf62),
+--     ('Optimism', 111,0x3c2269811836af69497E5F486A85D7316753cf62),
+--     ('Fantom', 112,0xb6319cC6c8c27A8F5dAF0dD3DF91EA35C4720dd7),
+--     ('Gnosis', 145,0x9740FF91F1985D8d2B71494aE1A2f723bb3Ed9E4)
+-- ),
+
+with daily_summary as (
+    select date_trunc('day', block_time) as block_date,
+        blockchain as chain_name,
+        count(*) as transaction_count,
+        count(distinct user_address) as active_user_count
+    from layerzero.send t
+    -- inner join chain_list c on t.source_chain_id = c.chain_id
+    where block_time >= date('2023-03-01')
+        and block_time < current_date
+    group by 1, 2
+    order by 1
+),
+
+daily_summary_lead as (
+    select block_date,
+        chain_name,
+        transaction_count,
+        active_user_count,
+        lag(transaction_count) over (partition by chain_name order by block_date) as previous_transaction_count,
+        lag(active_user_count) over (partition by chain_name order by block_date) as previous_active_user_count
+    from daily_summary
+    order by block_date
+)
+
+select block_date,
+    chain_name,
+    transaction_count,
+    active_user_count,
+    previous_transaction_count,
+    previous_active_user_count,
+    cast(transaction_count - coalesce(previous_transaction_count, 0) as double) / previous_transaction_count as transaction_count_change_rage,
+    cast(active_user_count - coalesce(previous_active_user_count, 0) as double) / previous_active_user_count as user_countchange_rage
+from daily_summary_lead
+order by block_date
